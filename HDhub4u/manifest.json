@@ -4,5 +4,5 @@
     "version": "1.0.0",
     "description": "HDHub4U provider — Bollywood, Hollywood, Hindi Dubbed movies and web series.",
     "sourceUrl": "https://hdhub4u.rehab",
-    "main": "index.js"
+    "main": "main.js"
 }

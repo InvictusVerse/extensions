@@ -20,7 +20,6 @@ def build_plugins():
             manifest_path = os.path.join(folder, "manifest.json")
             
             if os.path.exists(manifest_path):
-                # FIXED: Changed encoding to 'utf-8-sig' to bypass the BOM error
                 with open(manifest_path, "r", encoding="utf-8-sig") as f:
                     manifest = json.load(f)
                 
@@ -40,16 +39,12 @@ def build_plugins():
                 bundle_filepath = os.path.join(build_dir, bundle_filename)
                 
                 print(f"📦 Bundling and minifying {plugin_name}...")
+                
+                # FIXED: Formatted the command as a single string for Windows shell=True compatibility
+                build_command = f'npx esbuild "{entry_path}" --bundle --minify --outfile="{bundle_filepath}" --platform=node --format=cjs'
+                
                 try:
-                    # Run esbuild to squash everything into one file
-                    subprocess.run([
-                        "npx", "esbuild", entry_path, 
-                        "--bundle", 
-                        "--minify", 
-                        f"--outfile={bundle_filepath}",
-                        "--platform=node", # Preserves built-in node modules like 'crypto'
-                        "--format=cjs"     # Uses CommonJS (module.exports)
-                    ], check=True, shell=True) # shell=True helps Windows find npx
+                    subprocess.run(build_command, check=True, shell=True) 
                 except Exception as e:
                     print(f"❌ Failed to build {plugin_name}: {e}")
                     continue
