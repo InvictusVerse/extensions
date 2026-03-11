@@ -2,7 +2,7 @@
     "name": "HDhub4u",
     "internalName": "HDhub4uProvider",
     "version": 1,
-    "description": "Scrapes HDhub4u movies.",
+    "description": "Scrapes Bollywood and Hollywood movies from HDhub4u.",
     "language": "hi",
-    "tvTypes": ["Movie", "TvSeries"]
+    "tvTypes": ["Movie", "TvSeries", "Anime"]
 }
