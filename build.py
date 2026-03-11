@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import subprocess
 
@@ -20,7 +20,8 @@ def build_plugins():
             manifest_path = os.path.join(folder, "manifest.json")
             
             if os.path.exists(manifest_path):
-                with open(manifest_path, "r", encoding="utf-8") as f:
+                # FIXED: Changed encoding to 'utf-8-sig' to bypass the BOM error
+                with open(manifest_path, "r", encoding="utf-8-sig") as f:
                     manifest = json.load(f)
                 
                 # Use ID or folder name for the filename
