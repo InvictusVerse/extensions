@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # Allows you to run it manually from the GitHub website
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,20 +15,23 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js (For esbuild)
-        uses: actions/setup-node@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: 22
 
       - name: Install NPM Dependencies
         run: npm install
 
+      - name: Fix esbuild permission
+        run: chmod +x node_modules/.bin/esbuild
+
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Run Build Script
         run: python build.py
