@@ -1,8 +1,8 @@
 ﻿{
-    "name": "HDhub4u",
-    "internalName": "HDhub4uProvider",
-    "version": 1,
-    "description": "Scrapes Bollywood and Hollywood movies from HDhub4u.",
-    "language": "hi",
-    "tvTypes": ["Movie", "TvSeries", "Anime"]
+    "id": "com.hdhub4u",
+    "name": "HDHub4U",
+    "version": "1.0.0",
+    "description": "HDHub4U provider — Bollywood, Hollywood, Hindi Dubbed movies and web series.",
+    "sourceUrl": "https://hdhub4u.rehab",
+    "main": "index.js"
 }
