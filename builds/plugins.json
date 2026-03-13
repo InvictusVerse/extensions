@@ -1,10 +1,1 @@
-[
-    {
-        "id": "com.hdhub4u",
-        "name": "HDHub4U",
-        "version": "1.0.0",
-        "description": "HDHub4U provider \u2014 Bollywood, Hollywood, Hindi Dubbed movies and web series.",
-        "sourceUrl": "https://hdhub4u.rehab",
-        "url": "https://raw.githubusercontent.com/InvictusVerse/extensions/builds/com.hdhub4u.bundle.js"
-    }
-]
+[]
