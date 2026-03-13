@@ -41,8 +41,7 @@ def build_plugins():
                 print(f"📦 Bundling and minifying {plugin_name}...")
                 
                 # FIXED: Formatted the command as a single string for Windows shell=True compatibility
-                build_command = f'npx esbuild "{entry_path}" --bundle --minify --outfile="{bundle_filepath}" --platform=node --format=cjs'
-                
+                build_command = f'npx esbuild "{entry_path}" --bundle --minify --outfile="{bundle_filepath}" --platform=browser --target=es5'
                 try:
                     subprocess.run(build_command, check=True, shell=True) 
                 except Exception as e:
