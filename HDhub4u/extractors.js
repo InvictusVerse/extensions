@@ -7,9 +7,20 @@ function getIndexQuality(header) {
     return match ? parseInt(match[1]) : 2160;
 }
 
+// ------------------------------------------------------------------------------------
+// 1. VidStack / HubStream Extractor (Requires Referer Header Bypass)
+// ------------------------------------------------------------------------------------
 async function extractVidStack(url, referer, subtitleCb, linkCb) {
     try {
-        const headers = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0" };
+        console.log(`Bypassing VidStack/HubCloud at: ${url}`);
+        
+        // Anti-Bot Bypass Headers
+        const headers = { 
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Referer": referer || url,
+            "Accept": "application/json, text/plain, */*"
+        };
+        
         let hash = url.split('#').pop();
         if (hash.includes('/')) hash = hash.split('/').pop();
         
@@ -32,6 +43,7 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
             let m3u8 = m3u8Match[1].replace(/\\\//g, '/');
             if (m3u8.startsWith("https")) m3u8 = "http" + m3u8.substring(5);
             
+            // Extract Subtitles if available
             const subtitleSection = decrypted.match(/"subtitle":\{(.*?)\}/);
             if (subtitleSection) {
                 const subMatches = [...subtitleSection[1].matchAll(/"([^"]+)":\s*"([^"]+)"/g)];
@@ -45,20 +57,36 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
             }
 
             linkCb({
-                source: "Vidstack", name: "Vidstack", url: m3u8,
-                referer: url, type: "M3U8", quality: 0, headers: { referer: url }
+                source: "Vidstack", 
+                name: "Vidstack (HLS)", 
+                url: m3u8,
+                referer: url, 
+                isM3u8: m3u8.includes('.m3u8') || m3u8.includes('playlist'),
+                quality: "HD", 
+                headers: { referer: url }
             });
         }
-    } catch (e) { console.error("[VidStack] Error:", e.message); }
+    } catch (e) { 
+        console.error("[VidStack] Error:", e.message); 
+    }
 }
 
+// ------------------------------------------------------------------------------------
+// 2. HubCloud Extractor
+// ------------------------------------------------------------------------------------
 async function extractHubCloud(url, referer, subtitleCb, linkCb) {
     try {
         let href = url;
         const baseUrl = utils.getBaseUrl(url);
 
+        // Bypass headers for Cloudflare
+        const bypassHeaders = {
+            'Referer': referer || url,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+
         if (!url.includes("hubcloud.php")) {
-            const resp = await axios.get(url);
+            const resp = await axios.get(url, { headers: bypassHeaders });
             const $ = cheerio.load(resp.data);
             const rawHref = $('#download').attr('href');
             if (rawHref) {
@@ -67,7 +95,7 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
         }
         if (!href) return;
 
-        const resp2 = await axios.get(href);
+        const resp2 = await axios.get(href, { headers: bypassHeaders });
         const $ = cheerio.load(resp2.data);
         
         const size = $('i#size').text().trim();
@@ -79,41 +107,47 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
         const promises = [];
         $('a.btn').each((_, el) => {
             const buttonLink = $(el).attr('href');
+            if (!buttonLink) return;
             const label = $(el).text().toLowerCase();
 
             if (label.includes("fsl server")) {
-                linkCb({ source: `${referer} [FSL Server]`, name: `${referer} [FSL Server] ${labelExtras}`, url: buttonLink, quality });
+                linkCb({ source: `${referer} [FSL Server]`, name: `FSL Server ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("download file")) {
-                linkCb({ source: referer, name: `${referer} ${labelExtras}`, url: buttonLink, quality });
+                linkCb({ source: referer, name: `Direct ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("buzzserver")) {
                 promises.push(axios.get(`${buttonLink}/download`, { headers: { Referer: buttonLink }, maxRedirects: 0 })
                     .catch(err => {
                         if (err.response && err.response.headers.location) {
-                            linkCb({ source: `${referer} [BuzzServer]`, name: `${referer} [BuzzServer] ${labelExtras}`, url: err.response.headers.location, quality });
+                            linkCb({ source: `${referer} [BuzzServer]`, name: `BuzzServer ${labelExtras}`, url: err.response.headers.location, isM3u8: false });
                         }
                     }));
             } else if (label.includes("pixeldra") || label.includes("pixel server")) {
                 const fileId = buttonLink.split('/').pop().split('?')[0];
                 const pixelBase = utils.getBaseUrl(buttonLink);
                 const finalUrl = buttonLink.includes("download") ? buttonLink : `${pixelBase}/api/file/${fileId}?download`;
-                linkCb({ source: `${referer} Pixeldrain`, name: `${referer} Pixeldrain ${labelExtras}`, url: finalUrl, quality });
+                linkCb({ source: `${referer} Pixeldrain`, name: `Pixeldrain ${labelExtras}`, url: finalUrl, isM3u8: false });
             } else if (label.includes("s3 server")) {
-                linkCb({ source: `${referer} [S3 Server]`, name: `${referer} [S3 Server] ${labelExtras}`, url: buttonLink, quality });
+                linkCb({ source: `${referer} [S3 Server]`, name: `S3 Server ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("fslv2")) {
-                linkCb({ source: `${referer} [FSLv2]`, name: `${referer} [FSLv2] ${labelExtras}`, url: buttonLink, quality });
+                linkCb({ source: `${referer} [FSLv2]`, name: `FSLv2 ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("mega server")) {
-                linkCb({ source: `${referer} [Mega Server]`, name: `${referer} [Mega Server] ${labelExtras}`, url: buttonLink, quality });
+                linkCb({ source: `${referer} [Mega Server]`, name: `Mega Server ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else {
                 promises.push(extractGeneric(buttonLink, "", subtitleCb, linkCb));
             }
         });
         await Promise.all(promises);
-    } catch (e) { console.error("[HubCloud] Error:", e.message); }
+    } catch (e) { 
+        console.error("[HubCloud] Error:", e.message); 
+    }
 }
 
+// ------------------------------------------------------------------------------------
+// 3. HubDrive Extractor
+// ------------------------------------------------------------------------------------
 async function extractHubdrive(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url);
+        const resp = await axios.get(url, { headers: { Referer: referer }});
         const $ = cheerio.load(resp.data);
         const href = $('.btn.btn-primary.btn-user.btn-success1.m-1').attr('href');
         if (!href) return;
@@ -123,12 +157,15 @@ async function extractHubdrive(url, referer, subtitleCb, linkCb) {
         } else {
             await extractGeneric(href, "HubDrive", subtitleCb, linkCb);
         }
-    } catch (e) {}
+    } catch (e) { console.error("[HubDrive] Error:", e.message); }
 }
 
+// ------------------------------------------------------------------------------------
+// 4. HubCDN Extractor (Base64 Decode)
+// ------------------------------------------------------------------------------------
 async function extractHubCDN(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url);
+        const resp = await axios.get(url, { headers: { Referer: referer }});
         const match = resp.data.match(/reurl\s*=\s*"([^"]+)"/);
         if (!match) return;
 
@@ -139,14 +176,17 @@ async function extractHubCDN(url, referer, subtitleCb, linkCb) {
         if (decoded.includes("link=")) decoded = decoded.split("link=")[1];
 
         if (decoded) {
-            linkCb({ source: "HUBCDN", name: "HUBCDN", url: decoded, quality: 0 });
+            linkCb({ source: "HUBCDN", name: "HUBCDN", url: decoded, isM3u8: false });
         }
-    } catch (e) {}
+    } catch (e) { console.error("[HubCDN] Error:", e.message); }
 }
 
+// ------------------------------------------------------------------------------------
+// 5. Hubcdnn Extractor
+// ------------------------------------------------------------------------------------
 async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url);
+        const resp = await axios.get(url, { headers: { Referer: referer }});
         const match = resp.data.match(/r=([A-Za-z0-9+/=]+)/);
         if (!match) return;
 
@@ -154,11 +194,14 @@ async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
         if (m3u8.includes("link=")) m3u8 = m3u8.split("link=")[1];
 
         if (m3u8) {
-            linkCb({ source: "Hubcdn", name: "Hubcdn", url: m3u8, type: "M3U8", referer: url, quality: 0 });
+            linkCb({ source: "Hubcdn", name: "Hubcdn (HLS)", url: m3u8, isM3u8: true, referer: url });
         }
-    } catch (e) {}
+    } catch (e) { console.error("[Hubcdnn] Error:", e.message); }
 }
 
+// ------------------------------------------------------------------------------------
+// 6. HbLinks Extractor (Page Router)
+// ------------------------------------------------------------------------------------
 async function extractHblinks(url, referer, subtitleCb, linkCb) {
     try {
         const resp = await axios.get(url);
@@ -176,11 +219,15 @@ async function extractHblinks(url, referer, subtitleCb, linkCb) {
             else promises.push(extractGeneric(href, "Hblinks", subtitleCb, linkCb));
         });
         await Promise.all(promises);
-    } catch (e) {}
+    } catch (e) { console.error("[HbLinks] Error:", e.message); }
 }
 
+// ------------------------------------------------------------------------------------
+// 7. Generic Router (The Master Switch)
+// ------------------------------------------------------------------------------------
 async function extractGeneric(url, referer, subtitleCb, linkCb) {
     const lower = url.toLowerCase();
+    
     if (lower.includes("hubcloud")) {
         await extractHubCloud(url, referer, subtitleCb, linkCb);
     } else if (lower.includes("hubstream") || lower.includes("vidstack") || lower.includes("hdstream4u")) {
@@ -196,21 +243,30 @@ async function extractGeneric(url, referer, subtitleCb, linkCb) {
     } else if (lower.includes("pixeldrain") || lower.includes("pixeldra")) {
         const pixelBase = utils.getBaseUrl(url);
         const fileId = url.split('/').pop().split('?')[0];
-        linkCb({ source: "Pixeldrain", name: "Pixeldrain", url: `${pixelBase}/api/file/${fileId}?download`, quality: 0 });
+        linkCb({ source: "Pixeldrain", name: "Pixeldrain", url: `${pixelBase}/api/file/${fileId}?download`, isM3u8: false });
     } else if (lower.includes("streamtape")) {
         try {
             const resp = await axios.get(url);
             const match = resp.data.match(/document\.getElementById\('robotlink'\)\.innerHTML = '([^']+)'/);
             if (match) {
-                linkCb({ source: "StreamTape", name: "StreamTape", url: `https:${match[1]}`, quality: 0 });
+                linkCb({ source: "StreamTape", name: "StreamTape", url: `https:${match[1]}`, isM3u8: false });
             }
         } catch (e) {}
     } else {
-        linkCb({ source: referer || "Direct", name: referer || "Direct", url: url, quality: 0 });
+        linkCb({ source: referer || "Direct", name: referer || "Direct", url: url, isM3u8: url.includes('.m3u8') });
     }
 }
 
+// ------------------------------------------------------------------------------------
+// EXPORTS
+// ------------------------------------------------------------------------------------
 module.exports = {
-    extractVidStack, extractHubCloud, extractHblinks, extractHubCDN,
-    extractHubcdnn, extractHubdrive, extractGeneric
+    extractVidStack, 
+    extractHubCloud, 
+    extractHblinks, 
+    extractHubCDN,
+    extractHubcdnn, 
+    extractHubdrive, 
+    extractGeneric,
+    invokeVidstack: extractVidStack // Added alias so main.js doesn't break
 };

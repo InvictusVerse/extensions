@@ -336,30 +336,43 @@ class HDhub4uProvider {
 
     async loadLinks(data, subtitleCb, linkCb) {
         try {
-            const links = JSON.parse(data);
-            const promises = [];
-            for (let link of links) {
-                link = link.trim();
-                if (!link) continue;
-                
-                promises.push((async () => {
-                    try {
-                        let finalLink = link.includes("?id=") ? await utils.getRedirectLinks(link) : link;
-                        if (!finalLink) return;
-                        
-                        const lower = finalLink.toLowerCase();
-                        if (lower.includes("hubdrive")) {
-                            await extractors.extractHubdrive(finalLink, "", subtitleCb, linkCb);
-                        } else {
-                            await extractors.extractGeneric(finalLink, "", subtitleCb, linkCb);
-                        }
-                    } catch (e) { console.error("[HDhub4u] Failed to process link:", e.message); }
-                })());
+            let urlToScrape = data;
+            
+            // FIX 1: Safely parse JSON from React, or fallback to the raw URL string
+            try {
+                if (data && typeof data === 'string' && data.trim().startsWith('{')) {
+                    const parsed = JSON.parse(data);
+                    urlToScrape = parsed.url || parsed.link || parsed.data || data;
+                }
+            } catch (e) {
+                console.log("Data is a raw URL, skipping JSON parse.");
             }
-            await Promise.all(promises);
+
+            console.log(`Starting extraction for: ${urlToScrape}`);
+
+            // 1. Fetch the episode page
+            const response = await axios.get(urlToScrape);
+            const doc = cheerio.load(response.data);
+            
+            // 2. Find all server iframes (Cloudstream logic)
+            const iframes = [];
+            doc('iframe').each((i, el) => {
+                const src = doc(el).attr('src');
+                if (src) iframes.push(src);
+            });
+
+            // 3. Pass the iframes to specific extractors
+            for (const iframeUrl of iframes) {
+                if (iframeUrl.includes("vidstack") || iframeUrl.includes("hubcloud")) {
+                    await extractors.invokeVidstack(iframeUrl, linkCb);
+                } 
+                // Add more extractors here (e.g., streamwish, voe) as you build them
+            }
+            
             return true;
-        } catch (e) {
-            console.error("loadLinks Error:", e.message);
+            
+        } catch (error) {
+            console.error("loadLinks Error:", error.message);
             return false;
         }
     }
