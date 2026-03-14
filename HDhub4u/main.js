@@ -58,8 +58,11 @@ class HDhub4uProvider {
                     }
                 });
 
-                if (homeItems.length > 0) {
+               /* if (homeItems.length > 0) {
                     response.items.push({ title: pageDef.title, data: homeItems });
+                }*/
+                if (homeItems.length > 0) {
+                    response.items.push({ name: pageDef.title, list: homeItems });
                 }
             } catch (e) {
                 console.error("Error fetching homepage category:", pageDef.title);
