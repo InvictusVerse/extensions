@@ -362,4 +362,9 @@ class HDhub4uProvider {
     }
 }
 
+// Attach an initialized instance to the window for StreamCore WebView to consume
+if (typeof window !== 'undefined') {
+    window['com.hdhub4u'] = new HDhub4uProvider();
+}
+
 module.exports = HDhub4uProvider;

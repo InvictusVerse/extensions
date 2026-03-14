@@ -1,12 +1,14 @@
-const crypto = require('crypto');
+const CryptoJS = require('crypto-js');
 const axios = require('axios');
 
 function base64Decode(encoded) {
-    return Buffer.from(encoded, 'base64').toString('utf8');
+    // Browser-safe Base64 decode using CryptoJS (removes Node.js Buffer requirement)
+    return CryptoJS.enc.Base64.parse(encoded).toString(CryptoJS.enc.Utf8);
 }
 
 function base64Encode(data) {
-    return Buffer.from(data, 'utf8').toString('base64');
+    // Browser-safe Base64 encode
+    return CryptoJS.enc.Utf8.parse(data).toString(CryptoJS.enc.Base64);
 }
 
 function rot13(str) {
@@ -19,17 +21,22 @@ function rot13(str) {
 
 function aesDecryptCBC(hexCiphertext, keyStr, ivStr) {
     try {
-        const cipherBytes = Buffer.from(hexCiphertext, 'hex');
-        const key = Buffer.from(keyStr.padEnd(16, '\0').slice(0, 16));
-        const iv = Buffer.from(ivStr.padEnd(16, '\0').slice(0, 16));
+        // Parse the Key and IV into CryptoJS WordArrays (16 bytes)
+        const key = CryptoJS.enc.Utf8.parse(keyStr.padEnd(16, '\0').slice(0, 16));
+        const iv = CryptoJS.enc.Utf8.parse(ivStr.padEnd(16, '\0').slice(0, 16));
         
-        const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
-        decipher.setAutoPadding(true);
+        // Parse the raw hex ciphertext
+        const ciphertext = CryptoJS.enc.Hex.parse(hexCiphertext);
+        const cipherParams = CryptoJS.lib.CipherParams.create({ ciphertext: ciphertext });
         
-        let decrypted = decipher.update(cipherBytes, undefined, 'utf8');
-        decrypted += decipher.final('utf8');
+        // Decrypt using AES-CBC with PKCS7 padding (standard for createDecipheriv)
+        const decrypted = CryptoJS.AES.decrypt(cipherParams, key, {
+            iv: iv,
+            mode: CryptoJS.mode.CBC,
+            padding: CryptoJS.pad.Pkcs7
+        });
         
-        return decrypted;
+        return decrypted.toString(CryptoJS.enc.Utf8);
     } catch (e) {
         console.error("AES Decrypt Error:", e.message);
         return "";
