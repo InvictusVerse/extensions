@@ -334,69 +334,76 @@ class HDhub4uProvider {
         }
     }
 
-  async loadLinks(data, subtitleCb, linkCb) {
+ async loadLinks(url) {
+        const links = [];
+        const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
+        const linkCb = (link) => links.push(link);
+
         try {
-            let urlsToScrape = [];
-            
-            // 1. SAFELY PARSE THE DATA FROM REACT
-            try {
-                if (data && typeof data === 'string') {
-                    if (data.trim().startsWith('[')) {
-                        // It's an array of URLs! (e.g., ["url1", "url2"])
-                        urlsToScrape = JSON.parse(data);
-                    } else if (data.trim().startsWith('{')) {
-                        // It's a JSON object!
-                        const parsed = JSON.parse(data);
-                        let extracted = parsed.url || parsed.link || parsed.data || data;
-                        urlsToScrape = Array.isArray(extracted) ? extracted : [extracted];
-                    } else {
-                        // It's just a normal string URL
-                        urlsToScrape = [data];
-                    }
-                } else if (Array.isArray(data)) {
-                    urlsToScrape = data;
+            const resp = await axios.get(url, { 
+                headers: { 
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+                    "Cookie": "xla=s4t" // Use the bypass cookie here too
                 }
-            } catch (e) {
-                console.log("Data parsing fallback to raw string.");
-                urlsToScrape = [data];
-            }
+            });
+            const $ = cheerio.load(resp.data);
+            const promises = [];
 
-            // 2. PROCESS EVERY URL (Cloudstream HDhub4u logic)
-            for (let targetUrl of urlsToScrape) {
-                console.log(`Starting extraction for: ${targetUrl}`);
+            // 1. ORIGINAL KOTLIN METHOD: Extract links from <p><a> tags
+            // HDhub4u puts its main download/stream buttons in paragraph links
+            $("p").each((i, pEl) => {
+                $(pEl).find("a").each((j, aEl) => {
+                    const href = $(aEl).attr("href");
+                    if (!href) return;
+
+                    const lowerHref = href.toLowerCase();
+
+                    // SKIP TRAILERS: Ignore anything with YouTube
+                    if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
+
+                    // If it's one of our known hosts, send it to extractGeneric
+                    if (
+                        lowerHref.includes("hubdrive") || 
+                        lowerHref.includes("hubcloud") || 
+                        lowerHref.includes("hblinks") || 
+                        lowerHref.includes("hubcdn") || 
+                        lowerHref.includes("hubcdnn") || 
+                        lowerHref.includes("hubx") || 
+                        lowerHref.includes("hubstream") || 
+                        lowerHref.includes("vidstack") || 
+                        lowerHref.includes("hdstream4u")
+                    ) {
+                        promises.push(extractors.extractGeneric(href, url, subtitleCb, linkCb));
+                    }
+                });
+            });
+
+            // 2. ORIGINAL KOTLIN METHOD: Filtered Iframe extraction
+            // Only extract iframes if they belong to a known stream host
+            $("iframe").each((i, el) => {
+                const src = $(el).attr("src");
+                if (!src) return;
                 
-                try {
-                    // Check if it's a direct host link (like hubdrive.space or hdstream4u.com)
-                    if (targetUrl.includes("hubdrive") || targetUrl.includes("hdstream") || targetUrl.includes("hubstream")) {
-                        await extractors.extractGeneric(targetUrl, this.baseUrl, subtitleCb, linkCb);
-                        continue; // Skip the iframe scraping below since we already have the direct host
-                    }
+                const lowerSrc = src.toLowerCase();
 
-                    // Otherwise, it's an episode page. Fetch the page and find the iframes.
-                    const response = await axios.get(targetUrl);
-                    const $ = cheerio.load(response.data);
-                    
-                    const links = [];
-                    $('iframe, a.btn').each((i, el) => {
-                        const href = $(el).attr('src') || $(el).attr('href');
-                        if (href && href.startsWith('http')) links.push(href);
-                    });
-
-                    // Pass the found iframes to the Generic Router
-                    for (const linkUrl of links) {
-                        await extractors.extractGeneric(linkUrl, targetUrl, subtitleCb, linkCb);
-                    }
-                } catch (pageError) {
-                    console.error(`Failed to scrape target URL ${targetUrl}:`, pageError.message);
+                // Strictly filter for HubCloud/Vidstack embeds (Ignores YouTube)
+                if (
+                    lowerSrc.includes("hubcloud") || 
+                    lowerSrc.includes("hubstream") || 
+                    lowerSrc.includes("vidstack") || 
+                    lowerSrc.includes("hdstream4u")
+                ) {
+                    promises.push(extractors.extractGeneric(src, url, subtitleCb, linkCb));
                 }
-            }
-            
-            return true;
-            
-        } catch (error) {
-            console.error("loadLinks Fatal Error:", error.message);
-            return false;
+            });
+
+            await Promise.all(promises);
+
+        } catch (e) {
+            console.error("[HDhub4u] Load Links Error:", e.message);
         }
+        
+        return links;
     }
 }
 
