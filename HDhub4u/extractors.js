@@ -1,8 +1,8 @@
-const axios = require('axios');
+// --- SWAPPED IMPORT ---
+const axios = require('./utils').nativeAxios;
 const cheerio = require('cheerio');
 const utils = require('./utils');
 
-// Added standard browser headers and the specific Cloudstream bypass cookie globally
 const DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
     "Cookie": "xla=s4t" 
@@ -13,14 +13,10 @@ function getIndexQuality(header) {
     return match ? parseInt(match[1]) : 2160;
 }
 
-// ------------------------------------------------------------------------------------
-// 1. VidStack / HubStream Extractor (Requires Referer Header Bypass)
-// ------------------------------------------------------------------------------------
 async function extractVidStack(url, referer, subtitleCb, linkCb) {
     try {
         console.log(`Bypassing VidStack/HubCloud at: ${url}`);
         
-        // Anti-Bot Bypass Headers - STRICTLY requires Firefox UA per Kotlin source
         const headers = { 
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
             "Referer": referer || url,
@@ -49,7 +45,6 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
             let m3u8 = m3u8Match[1].replace(/\\\//g, '/');
             if (m3u8.startsWith("https")) m3u8 = "http" + m3u8.substring(5);
             
-            // Extract Subtitles if available
             const subtitleSection = decrypted.match(/"subtitle":\{(.*?)\}/);
             if (subtitleSection) {
                 const subMatches = [...subtitleSection[1].matchAll(/"([^"]+)":\s*"([^"]+)"/g)];
@@ -71,7 +66,7 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
                 quality: "HD", 
                 headers: { 
                     "Referer": url,
-                    "Origin": url.split('/').slice(0, 3).join('/') // Required for MPV to play VidStack
+                    "Origin": url.split('/').slice(0, 3).join('/') 
                 }
             });
         }
@@ -80,15 +75,11 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
     }
 }
 
-// ------------------------------------------------------------------------------------
-// 2. HubCloud Extractor
-// ------------------------------------------------------------------------------------
 async function extractHubCloud(url, referer, subtitleCb, linkCb) {
     try {
         let href = url;
         const baseUrl = utils.getBaseUrl(url);
 
-        // Bypass headers for Cloudflare / HubCloud
         const bypassHeaders = {
             ...DEFAULT_HEADERS,
             'Referer': referer || url
@@ -124,6 +115,7 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
             } else if (label.includes("download file")) {
                 linkCb({ source: referer, name: `Direct ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("buzzserver")) {
+                // maxRedirects: 0 is successfully mimicked in nativeAxios
                 promises.push(axios.get(`${buttonLink}/download`, { headers: { ...DEFAULT_HEADERS, Referer: buttonLink }, maxRedirects: 0 })
                     .catch(err => {
                         if (err.response && err.response.headers.location) {
@@ -151,9 +143,6 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
     }
 }
 
-// ------------------------------------------------------------------------------------
-// 3. HubDrive Extractor
-// ------------------------------------------------------------------------------------
 async function extractHubdrive(url, referer, subtitleCb, linkCb) {
     try {
         const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
@@ -169,9 +158,6 @@ async function extractHubdrive(url, referer, subtitleCb, linkCb) {
     } catch (e) { console.error("[HubDrive] Error:", e.message); }
 }
 
-// ------------------------------------------------------------------------------------
-// 4. HubCDN Extractor (Base64 Decode)
-// ------------------------------------------------------------------------------------
 async function extractHubCDN(url, referer, subtitleCb, linkCb) {
     try {
         const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
@@ -190,9 +176,6 @@ async function extractHubCDN(url, referer, subtitleCb, linkCb) {
     } catch (e) { console.error("[HubCDN] Error:", e.message); }
 }
 
-// ------------------------------------------------------------------------------------
-// 5. Hubcdnn Extractor
-// ------------------------------------------------------------------------------------
 async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
     try {
         const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
@@ -208,9 +191,6 @@ async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
     } catch (e) { console.error("[Hubcdnn] Error:", e.message); }
 }
 
-// ------------------------------------------------------------------------------------
-// 6. HbLinks Extractor (Page Router)
-// ------------------------------------------------------------------------------------
 async function extractHblinks(url, referer, subtitleCb, linkCb) {
     try {
         const resp = await axios.get(url, { headers: DEFAULT_HEADERS });
@@ -231,9 +211,6 @@ async function extractHblinks(url, referer, subtitleCb, linkCb) {
     } catch (e) { console.error("[HbLinks] Error:", e.message); }
 }
 
-// ------------------------------------------------------------------------------------
-// 7. Generic Router (The Master Switch)
-// ------------------------------------------------------------------------------------
 async function extractGeneric(url, referer, subtitleCb, linkCb) {
     const lower = url.toLowerCase();
     
@@ -266,9 +243,6 @@ async function extractGeneric(url, referer, subtitleCb, linkCb) {
     }
 }
 
-// ------------------------------------------------------------------------------------
-// EXPORTS
-// ------------------------------------------------------------------------------------
 module.exports = {
     extractVidStack, 
     extractHubCloud, 
@@ -277,5 +251,5 @@ module.exports = {
     extractHubcdnn, 
     extractHubdrive, 
     extractGeneric,
-    invokeVidstack: extractVidStack // Alias to prevent breaking imports
+    invokeVidstack: extractVidStack
 };

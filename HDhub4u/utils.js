@@ -1,13 +1,73 @@
 const CryptoJS = require('crypto-js');
-const axios = require('axios');
+
+// --- THE NATIVE BRIDGE WRAPPER ---
+const nativeAxios = {
+    get: async (url, config = {}) => {
+        const headers = config.headers || {};
+        const maxRedirects = config.maxRedirects !== undefined ? config.maxRedirects : -1;
+        const followRedirects = maxRedirects !== 0;
+
+        if (typeof window !== 'undefined' && window.StreamCoreProviders?.backend?.nativeFetch) {
+            const res = await window.StreamCoreProviders.backend.nativeFetch(url, 'GET', headers, '', followRedirects);
+
+            let data = res.body;
+            try { data = JSON.parse(res.body); } catch(e) {}
+
+            const responseObj = {
+                data: data,
+                status: res.statusCode,
+                headers: { location: res.redirectUrl || "" }
+            };
+
+            // Catch 3xx redirects to mimic Axios's behavior for BuzzServer
+            if (res.statusCode >= 300 && res.statusCode < 400 && !followRedirects) {
+                const err = new Error("Redirected");
+                err.response = responseObj;
+                throw err;
+            }
+
+            if (!res.success && res.statusCode >= 400) {
+                const err = new Error("Request failed with status code " + res.statusCode);
+                err.response = responseObj;
+                throw err;
+            }
+            return responseObj;
+        } else {
+            const axios = require('axios');
+            return axios.get(url, config);
+        }
+    },
+    post: async (url, data, config = {}) => {
+        const headers = config.headers || {};
+        if (typeof window !== 'undefined' && window.StreamCoreProviders?.backend?.nativeFetch) {
+            const bodyStr = typeof data === 'string' ? data : JSON.stringify(data);
+            const res = await window.StreamCoreProviders.backend.nativeFetch(url, 'POST', headers, bodyStr, true);
+            
+            let parsedData = res.body;
+            try { parsedData = JSON.parse(res.body); } catch(e) {}
+            
+            const responseObj = { data: parsedData, status: res.statusCode, headers: {} };
+            if (!res.success && res.statusCode >= 400) {
+                const err = new Error("Request failed with status code " + res.statusCode);
+                err.response = responseObj;
+                throw err;
+            }
+            return responseObj;
+        } else {
+            const axios = require('axios');
+            return axios.post(url, data, config);
+        }
+    }
+};
+
+// Use the native wrapper internally
+const axios = nativeAxios;
 
 function base64Decode(encoded) {
-    // Browser-safe Base64 decode using CryptoJS (removes Node.js Buffer requirement)
     return CryptoJS.enc.Base64.parse(encoded).toString(CryptoJS.enc.Utf8);
 }
 
 function base64Encode(data) {
-    // Browser-safe Base64 encode
     return CryptoJS.enc.Utf8.parse(data).toString(CryptoJS.enc.Base64);
 }
 
@@ -21,21 +81,15 @@ function rot13(str) {
 
 function aesDecryptCBC(hexCiphertext, keyStr, ivStr) {
     try {
-        // Parse the Key and IV into CryptoJS WordArrays (16 bytes)
         const key = CryptoJS.enc.Utf8.parse(keyStr.padEnd(16, '\0').slice(0, 16));
         const iv = CryptoJS.enc.Utf8.parse(ivStr.padEnd(16, '\0').slice(0, 16));
-        
-        // Parse the raw hex ciphertext
         const ciphertext = CryptoJS.enc.Hex.parse(hexCiphertext);
         const cipherParams = CryptoJS.lib.CipherParams.create({ ciphertext: ciphertext });
-        
-        // Decrypt using AES-CBC with PKCS7 padding (standard for createDecipheriv)
         const decrypted = CryptoJS.AES.decrypt(cipherParams, key, {
             iv: iv,
             mode: CryptoJS.mode.CBC,
             padding: CryptoJS.pad.Pkcs7
         });
-        
         return decrypted.toString(CryptoJS.enc.Utf8);
     } catch (e) {
         console.error("AES Decrypt Error:", e.message);
@@ -47,7 +101,6 @@ function cleanTitle(raw) {
     let name = raw;
     const parenPos = name.indexOf('(');
     if (parenPos !== -1) name = name.substring(0, parenPos);
-    
     name = name.trim().replace(/\s+/g, ' ');
     if (name.length > 0) name = name.charAt(0).toUpperCase() + name.slice(1);
     
@@ -57,14 +110,12 @@ function cleanTitle(raw) {
     let result = name;
     if (seasonMatch) result += ` (Season ${seasonMatch[1]})`;
     if (yearMatch) result += ` (${yearMatch[0]})`;
-    
     return result;
 }
 
 function cleanFileTitle(title) {
     let name = title.replace(/\.[a-zA-Z0-9]{2,4}$/, '');
     const parts = name.split(/[\s_\.]+/).filter(Boolean);
-    
     const sourceTags = ["WEB-DL","WEBRIP","BLURAY","HDRIP","DVDRIP","HDTV","CAM","TS","BRRIP","BDRIP"];
     const codecTags = ["H264","H265","X264","X265","HEVC","AVC"];
     const audioTags = ["AAC","AC3","DTS","MP3","FLAC","DD","DDP","EAC3"];
@@ -97,7 +148,6 @@ async function getRedirectLinks(url) {
     try {
         const resp = await axios.get(url);
         const doc = resp.data;
-        
         const re = /s\('o','([A-Za-z0-9+/=]+)'\)|ck\('_wp_http_\d+','([^']+)'\)/g;
         let combined = "";
         let match;
@@ -144,6 +194,7 @@ async function fetchDomains(forceRefresh = false) {
 }
 
 module.exports = {
+    nativeAxios, // Expose the bridge globally
     base64Decode, base64Encode, rot13, aesDecryptCBC, cleanTitle,
     cleanFileTitle, getBaseUrl, getRedirectLinks, fetchDomains
 };

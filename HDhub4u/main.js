@@ -1,4 +1,5 @@
-﻿const axios = require('axios');
+﻿// --- SWAPPED IMPORT ---
+const axios = require('./utils').nativeAxios; 
 const cheerio = require('cheerio');
 const utils = require('./utils');
 const extractors = require('./extractors');
@@ -58,9 +59,6 @@ class HDhub4uProvider {
                     }
                 });
 
-               /* if (homeItems.length > 0) {
-                    response.items.push({ title: pageDef.title, data: homeItems });
-                }*/
                 if (homeItems.length > 0) {
                     response.items.push({ name: pageDef.title, list: homeItems });
                 }
@@ -334,7 +332,7 @@ class HDhub4uProvider {
         }
     }
 
- async loadLinks(url) {
+    async loadLinks(url) {
         const links = [];
         const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
         const linkCb = (link) => links.push(link);
@@ -343,14 +341,12 @@ class HDhub4uProvider {
             const resp = await axios.get(url, { 
                 headers: { 
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-                    "Cookie": "xla=s4t" // Use the bypass cookie here too
+                    "Cookie": "xla=s4t" 
                 }
             });
             const $ = cheerio.load(resp.data);
             const promises = [];
 
-            // 1. ORIGINAL KOTLIN METHOD: Extract links from <p><a> tags
-            // HDhub4u puts its main download/stream buttons in paragraph links
             $("p").each((i, pEl) => {
                 $(pEl).find("a").each((j, aEl) => {
                     const href = $(aEl).attr("href");
@@ -358,10 +354,8 @@ class HDhub4uProvider {
 
                     const lowerHref = href.toLowerCase();
 
-                    // SKIP TRAILERS: Ignore anything with YouTube
                     if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
 
-                    // If it's one of our known hosts, send it to extractGeneric
                     if (
                         lowerHref.includes("hubdrive") || 
                         lowerHref.includes("hubcloud") || 
@@ -378,15 +372,12 @@ class HDhub4uProvider {
                 });
             });
 
-            // 2. ORIGINAL KOTLIN METHOD: Filtered Iframe extraction
-            // Only extract iframes if they belong to a known stream host
             $("iframe").each((i, el) => {
                 const src = $(el).attr("src");
                 if (!src) return;
                 
                 const lowerSrc = src.toLowerCase();
 
-                // Strictly filter for HubCloud/Vidstack embeds (Ignores YouTube)
                 if (
                     lowerSrc.includes("hubcloud") || 
                     lowerSrc.includes("hubstream") || 
@@ -407,7 +398,6 @@ class HDhub4uProvider {
     }
 }
 
-// Attach an initialized instance to the window for StreamCore WebView to consume
 if (typeof window !== 'undefined') {
     window['com.hdhub4u'] = new HDhub4uProvider();
 }
