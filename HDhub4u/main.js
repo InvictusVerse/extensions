@@ -337,73 +337,76 @@ class HDhub4uProvider {
         const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
         const linkCb = (link) => links.push(link);
 
-        // 1. Parse the stringified array we passed from the load() function
+        // 1. Parse the stringified array safely
         let urlsToFetch = [];
         try {
             urlsToFetch = JSON.parse(dataStr);
         } catch (e) {
-            urlsToFetch = [dataStr]; // Fallback just in case it's a normal URL
+            urlsToFetch = [dataStr]; // Fallback in case it's just a standard URL string
         }
 
         const promises = [];
 
-        // 2. Loop through all the URLs
+        // 2. Loop through all the URLs passed from the episode data
         for (const url of urlsToFetch) {
+            const lowerUrl = url.toLowerCase();
+
+            // CHECK 1: Is this URL ALREADY a direct video host link?
+            // If it is, send it straight to the extractor. DO NOT scrape it for iframes.
+            if (
+                lowerUrl.includes("hubdrive") || 
+                lowerUrl.includes("hubcloud") || 
+                lowerUrl.includes("hblinks") || 
+                lowerUrl.includes("hubcdn") || 
+                lowerUrl.includes("hubcdnn") || 
+                lowerUrl.includes("hubx") || 
+                lowerUrl.includes("hubstream") || 
+                lowerUrl.includes("vidstack") || 
+                lowerUrl.includes("hdstream4u")
+            ) {
+                promises.push(extractors.extractGeneric(url, url, subtitleCb, linkCb));
+                continue; // Skip the rest of the loop for this URL
+            }
+
+            // CHECK 2: Otherwise, it's an intermediate page (like gadgetsweb.xyz).
+            // We fetch the HTML and scrape it for embedded iframes or links.
             try {
                 const resp = await axios.get(url, { 
                     headers: { 
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0",
                         "Cookie": "xla=s4t" 
                     }
                 });
                 const $ = cheerio.load(resp.data);
 
-                $("p").each((i, pEl) => {
-                    $(pEl).find("a").each((j, aEl) => {
-                        const href = $(aEl).attr("href");
-                        if (!href) return;
+                // Combine the search for both links and iframes
+                $("p a, iframe").each((i, el) => {
+                    const targetUrl = $(el).attr("href") || $(el).attr("src");
+                    if (!targetUrl) return;
 
-                        const lowerHref = href.toLowerCase();
-                        if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
-
-                        if (
-                            lowerHref.includes("hubdrive") || 
-                            lowerHref.includes("hubcloud") || 
-                            lowerHref.includes("hblinks") || 
-                            lowerHref.includes("hubcdn") || 
-                            lowerHref.includes("hubcdnn") || 
-                            lowerHref.includes("hubx") || 
-                            lowerHref.includes("hubstream") || 
-                            lowerHref.includes("vidstack") || 
-                            lowerHref.includes("hdstream4u")
-                        ) {
-                            promises.push(extractors.extractGeneric(href, url, subtitleCb, linkCb));
-                        }
-                    });
-                });
-
-                $("iframe").each((i, el) => {
-                    const src = $(el).attr("src");
-                    if (!src) return;
-                    
-                    const lowerSrc = src.toLowerCase();
+                    const lowerTarget = targetUrl.toLowerCase();
+                    if (lowerTarget.includes("youtube.com") || lowerTarget.includes("youtu.be")) return;
 
                     if (
-                        lowerSrc.includes("hubcloud") || 
-                        lowerSrc.includes("hubstream") || 
-                        lowerSrc.includes("vidstack") || 
-                        lowerSrc.includes("hdstream4u")
+                        lowerTarget.includes("hubdrive") || 
+                        lowerTarget.includes("hubcloud") || 
+                        lowerTarget.includes("hblinks") || 
+                        lowerTarget.includes("hubcdn") || 
+                        lowerTarget.includes("hubcdnn") || 
+                        lowerTarget.includes("hubx") || 
+                        lowerTarget.includes("hubstream") || 
+                        lowerTarget.includes("vidstack") || 
+                        lowerTarget.includes("hdstream4u")
                     ) {
-                        promises.push(extractors.extractGeneric(src, url, subtitleCb, linkCb));
+                        promises.push(extractors.extractGeneric(targetUrl, url, subtitleCb, linkCb));
                     }
                 });
-
             } catch (e) {
                 console.error(`[HDhub4u] Load Links Error for ${url}:`, e.message);
             }
         }
 
-        // Wait for all extractors across all pages to finish
+        // Wait for all extractors across all pages and direct links to finish
         await Promise.all(promises);
         
         return links;
