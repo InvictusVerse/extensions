@@ -38,9 +38,8 @@ function unpack(code) {
 // --- NEW VIDHIDE EXTRACTOR (Used by hdstream4u) ---
 async function extractVidHide(url, referer, subtitleCb, linkCb) {
     try {
-        console.log(`Bypassing VidHide at: ${url}`);
+        console.log(`[VidHide] Bypassing at: ${url}`);
         
-        // VidHide typically uses /v/ or /embed/ for its actual player page
         let embedUrl = url;
         if (url.includes("/file/")) {
             embedUrl = url.replace("/file/", "/v/");
@@ -53,25 +52,50 @@ async function extractVidHide(url, referer, subtitleCb, linkCb) {
             }
         });
 
-        let html = resp.data;
+        // REPLICATING KOTLIN JSOUP BEHAVIOR:
+        // Instead of pure regex on the whole HTML, we parse it and find the script tag
+        const $ = cheerio.load(resp.data);
+        let scriptContent = "";
 
-        // VidHide obfuscates their player source code. We must unpack it.
-        const packedRegex = /eval\(function\(p,a,c,k,e,d\).*?\)\)/;
-        const packedMatch = html.match(packedRegex);
+        $("script").each((i, el) => {
+            const inner = $(el).html();
+            if (inner && inner.includes("eval(function(p,a,c,k,e,d)")) {
+                scriptContent = inner;
+            }
+        });
 
-        if (packedMatch) {
-            html = unpack(packedMatch[0]);
+        let m3u8Link = null;
+
+        if (scriptContent) {
+            // Added /s flag so regex spans multiple lines correctly
+            const packedRegex = /eval\(function\(p,a,c,k,e,d\).*?\)\)/s; 
+            const packedMatch = scriptContent.match(packedRegex);
+
+            if (packedMatch) {
+                const unpackedHtml = unpack(packedMatch[0]);
+                
+                // VidHide stores the link in sources: [{file: "..."}] or src: "..."
+                const sourceMatch = unpackedHtml.match(/(?:file|src|source):\s*["'](https?:\/\/[^"']+\.(?:m3u8|txt)[^"']*)["']/i);
+                
+                if (sourceMatch) {
+                    m3u8Link = sourceMatch[1];
+                }
+            }
         }
 
-        // Once unpacked, look for the m3u8 source link
-        const sourceMatch = html.match(/(?:file|source):\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
+        // Fallback: If it's not packed, it might just be directly in the script
+        if (!m3u8Link) {
+            const fallbackMatch = resp.data.match(/(https?:\/\/[^"'\s]+\/(?:master|index|playlist)\.(?:m3u8|txt)[^"'\s]*)/i);
+            if (fallbackMatch) m3u8Link = fallbackMatch[1];
+        }
 
-        if (sourceMatch) {
+        if (m3u8Link) {
+            console.log(`[VidHide] Successfully Extracted Stream: ${m3u8Link}`);
             linkCb({
                 source: "HDStream4u",
                 name: "HDStream4u (HLS)",
-                url: sourceMatch[1],
-                isM3u8: true,
+                url: m3u8Link,
+                isM3u8: m3u8Link.includes('.m3u8') || m3u8Link.includes('.txt'),
                 quality: "HD",
                 referer: embedUrl,
                 headers: {
@@ -80,7 +104,7 @@ async function extractVidHide(url, referer, subtitleCb, linkCb) {
                 }
             });
         } else {
-            console.log("[VidHide] No m3u8 stream found in the unpacked HTML.");
+            console.log("[VidHide] Extraction failed. No m3u8 found in unpacked script.");
         }
     } catch (e) {
         console.error("[VidHide] Error:", e.message);
