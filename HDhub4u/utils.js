@@ -1,13 +1,16 @@
 const CryptoJS = require('crypto-js');
 
-// --- THE NATIVE BRIDGE WRAPPER ---
+// --- PIGGYBACK ON THE REACT IPC PIPELINE ---
 const nativeAxios = {
     get: async (url, config = {}) => {
         const headers = config.headers || {};
         const maxRedirects = config.maxRedirects !== undefined ? config.maxRedirects : -1;
         const followRedirects = maxRedirects !== 0;
 
+        // Check if React has exposed the Native Fetch bridge
         if (typeof window !== 'undefined' && window.StreamCoreProviders?.backend?.nativeFetch) {
+            console.log("[NativeAxios] Routing GET via React Bridge:", url);
+            
             const res = await window.StreamCoreProviders.backend.nativeFetch(url, 'GET', headers, '', followRedirects);
 
             let data = res.body;
@@ -19,7 +22,6 @@ const nativeAxios = {
                 headers: { location: res.redirectUrl || "" }
             };
 
-            // Catch 3xx redirects to mimic Axios's behavior for BuzzServer
             if (res.statusCode >= 300 && res.statusCode < 400 && !followRedirects) {
                 const err = new Error("Redirected");
                 err.response = responseObj;
@@ -33,6 +35,7 @@ const nativeAxios = {
             }
             return responseObj;
         } else {
+            console.warn("[NativeAxios] React Bridge missing. Falling back to sandbox axios.");
             const axios = require('axios');
             return axios.get(url, config);
         }
@@ -40,6 +43,8 @@ const nativeAxios = {
     post: async (url, data, config = {}) => {
         const headers = config.headers || {};
         if (typeof window !== 'undefined' && window.StreamCoreProviders?.backend?.nativeFetch) {
+            console.log("[NativeAxios] Routing POST via React Bridge:", url);
+            
             const bodyStr = typeof data === 'string' ? data : JSON.stringify(data);
             const res = await window.StreamCoreProviders.backend.nativeFetch(url, 'POST', headers, bodyStr, true);
             
@@ -59,9 +64,6 @@ const nativeAxios = {
         }
     }
 };
-
-// Use the native wrapper internally
-const axios = nativeAxios;
 
 function base64Decode(encoded) {
     return CryptoJS.enc.Base64.parse(encoded).toString(CryptoJS.enc.Utf8);
@@ -146,7 +148,7 @@ function getBaseUrl(url) {
 
 async function getRedirectLinks(url) {
     try {
-        const resp = await axios.get(url);
+        const resp = await nativeAxios.get(url);
         const doc = resp.data;
         const re = /s\('o','([A-Za-z0-9+/=]+)'\)|ck\('_wp_http_\d+','([^']+)'\)/g;
         let combined = "";
@@ -167,7 +169,7 @@ async function getRedirectLinks(url) {
         let directLink = "";
         try {
             if (blogUrl && dataField) {
-                const linkResp = await axios.get(`${blogUrl}?re=${dataField}`);
+                const linkResp = await nativeAxios.get(`${blogUrl}?re=${dataField}`);
                 directLink = linkResp.data.trim();
             }
         } catch (e) {}
@@ -182,7 +184,7 @@ let cachedDomains = null;
 async function fetchDomains(forceRefresh = false) {
     if (cachedDomains && !forceRefresh) return cachedDomains;
     try {
-        const resp = await axios.get("https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json");
+        const resp = await nativeAxios.get("https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json");
         cachedDomains = {
             hubcloud: resp.data.hubcloud,
             hdhub4u: resp.data.HDHUB4u
@@ -194,7 +196,7 @@ async function fetchDomains(forceRefresh = false) {
 }
 
 module.exports = {
-    nativeAxios, // Expose the bridge globally
+    nativeAxios, 
     base64Decode, base64Encode, rot13, aesDecryptCBC, cleanTitle,
     cleanFileTitle, getBaseUrl, getRedirectLinks, fetchDomains
 };
