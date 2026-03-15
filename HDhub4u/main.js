@@ -334,45 +334,67 @@ class HDhub4uProvider {
         }
     }
 
-    async loadLinks(data, subtitleCb, linkCb) {
+  async loadLinks(data, subtitleCb, linkCb) {
         try {
-            let urlToScrape = data;
+            let urlsToScrape = [];
             
-            // FIX 1: Safely parse JSON from React, or fallback to the raw URL string
+            // 1. SAFELY PARSE THE DATA FROM REACT
             try {
-                if (data && typeof data === 'string' && data.trim().startsWith('{')) {
-                    const parsed = JSON.parse(data);
-                    urlToScrape = parsed.url || parsed.link || parsed.data || data;
+                if (data && typeof data === 'string') {
+                    if (data.trim().startsWith('[')) {
+                        // It's an array of URLs! (e.g., ["url1", "url2"])
+                        urlsToScrape = JSON.parse(data);
+                    } else if (data.trim().startsWith('{')) {
+                        // It's a JSON object!
+                        const parsed = JSON.parse(data);
+                        let extracted = parsed.url || parsed.link || parsed.data || data;
+                        urlsToScrape = Array.isArray(extracted) ? extracted : [extracted];
+                    } else {
+                        // It's just a normal string URL
+                        urlsToScrape = [data];
+                    }
+                } else if (Array.isArray(data)) {
+                    urlsToScrape = data;
                 }
             } catch (e) {
-                console.log("Data is a raw URL, skipping JSON parse.");
+                console.log("Data parsing fallback to raw string.");
+                urlsToScrape = [data];
             }
 
-            console.log(`Starting extraction for: ${urlToScrape}`);
+            // 2. PROCESS EVERY URL (Cloudstream HDhub4u logic)
+            for (let targetUrl of urlsToScrape) {
+                console.log(`Starting extraction for: ${targetUrl}`);
+                
+                try {
+                    // Check if it's a direct host link (like hubdrive.space or hdstream4u.com)
+                    if (targetUrl.includes("hubdrive") || targetUrl.includes("hdstream") || targetUrl.includes("hubstream")) {
+                        await extractors.extractGeneric(targetUrl, this.baseUrl, subtitleCb, linkCb);
+                        continue; // Skip the iframe scraping below since we already have the direct host
+                    }
 
-            // 1. Fetch the episode page
-            const response = await axios.get(urlToScrape);
-            const doc = cheerio.load(response.data);
-            
-            // 2. Find all server iframes (Cloudstream logic)
-            const iframes = [];
-            doc('iframe').each((i, el) => {
-                const src = doc(el).attr('src');
-                if (src) iframes.push(src);
-            });
+                    // Otherwise, it's an episode page. Fetch the page and find the iframes.
+                    const response = await axios.get(targetUrl);
+                    const $ = cheerio.load(response.data);
+                    
+                    const links = [];
+                    $('iframe, a.btn').each((i, el) => {
+                        const href = $(el).attr('src') || $(el).attr('href');
+                        if (href && href.startsWith('http')) links.push(href);
+                    });
 
-            // 3. Pass the iframes to specific extractors
-            for (const iframeUrl of iframes) {
-                if (iframeUrl.includes("vidstack") || iframeUrl.includes("hubcloud")) {
-                    await extractors.invokeVidstack(iframeUrl, linkCb);
-                } 
-                // Add more extractors here (e.g., streamwish, voe) as you build them
+                    // Pass the found iframes to the Generic Router
+                    for (const linkUrl of links) {
+                        await extractors.extractGeneric(linkUrl, targetUrl, subtitleCb, linkCb);
+                    }
+                } catch (pageError) {
+                    console.error(`Failed to scrape target URL ${targetUrl}:`, pageError.message);
+                }
             }
             
             return true;
             
         } catch (error) {
-            console.error("loadLinks Error:", error.message);
+            console.error("loadLinks Fatal Error:", error.message);
             return false;
         }
     }
