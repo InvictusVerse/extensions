@@ -332,41 +332,69 @@ class HDhub4uProvider {
         }
     }
 
-   async loadLinks(data) {
+    async loadLinks(url) {
         const links = [];
-        // Standardize callbacks
-        const subtitleCb = (sub) => console.log("Subtitle found:", sub.lang);
-        const linkCb = (link) => {
-            console.log("Link found:", link.name);
-            links.push(link);
-        };
+        const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
+        const linkCb = (link) => links.push(link);
 
-        // --- FIX: Parse the array properly ---
-        let urlsToScrape = [];
         try {
-            const parsed = JSON.parse(data);
-            urlsToScrape = Array.isArray(parsed) ? parsed : [data];
-        } catch (e) {
-            urlsToScrape = [data];
-        }
-
-        console.log(`[HDhub4u] Starting extraction for ${urlsToScrape.length} sources...`);
-
-        // Execute all scrapes in parallel
-        await Promise.allSettled(urlsToScrape.map(async (url) => {
-            try {
-                // Ensure we are passing a clean string URL to the extractor
-                const targetUrl = (typeof url === 'string') ? url : url.url;
-                if (targetUrl) {
-                    await extractors.extractGeneric(targetUrl, targetUrl, subtitleCb, linkCb);
+            const resp = await axios.get(url, { 
+                headers: { 
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+                    "Cookie": "xla=s4t" 
                 }
-            } catch (e) {
-                console.error("[HDhub4u] Extraction failed for:", url);
-            }
-        }));
+            });
+            const $ = cheerio.load(resp.data);
+            const promises = [];
 
-        console.log(`[HDhub4u] Extraction finished. Found ${links.length} playable links.`);
-        return links; // Return the array to PlayerPage.tsx
+            $("p").each((i, pEl) => {
+                $(pEl).find("a").each((j, aEl) => {
+                    const href = $(aEl).attr("href");
+                    if (!href) return;
+
+                    const lowerHref = href.toLowerCase();
+
+                    if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
+
+                    if (
+                        lowerHref.includes("hubdrive") || 
+                        lowerHref.includes("hubcloud") || 
+                        lowerHref.includes("hblinks") || 
+                        lowerHref.includes("hubcdn") || 
+                        lowerHref.includes("hubcdnn") || 
+                        lowerHref.includes("hubx") || 
+                        lowerHref.includes("hubstream") || 
+                        lowerHref.includes("vidstack") || 
+                        lowerHref.includes("hdstream4u")
+                    ) {
+                        promises.push(extractors.extractGeneric(href, url, subtitleCb, linkCb));
+                    }
+                });
+            });
+
+            $("iframe").each((i, el) => {
+                const src = $(el).attr("src");
+                if (!src) return;
+                
+                const lowerSrc = src.toLowerCase();
+
+                if (
+                    lowerSrc.includes("hubcloud") || 
+                    lowerSrc.includes("hubstream") || 
+                    lowerSrc.includes("vidstack") || 
+                    lowerSrc.includes("hdstream4u")
+                ) {
+                    promises.push(extractors.extractGeneric(src, url, subtitleCb, linkCb));
+                }
+            });
+
+            await Promise.all(promises);
+
+        } catch (e) {
+            console.error("[HDhub4u] Load Links Error:", e.message);
+        }
+        
+        return links;
     }
 }
 
