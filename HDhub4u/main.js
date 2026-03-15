@@ -332,79 +332,41 @@ class HDhub4uProvider {
         }
     }
 
-   async loadLinks(dataUrl) {
+   async loadLinks(data) {
         const links = [];
-        const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
-        const linkCb = (link) => links.push(link);
+        // Standardize callbacks
+        const subtitleCb = (sub) => console.log("Subtitle found:", sub.lang);
+        const linkCb = (link) => {
+            console.log("Link found:", link.name);
+            links.push(link);
+        };
 
-        // 1. Parse the incoming string (If it's an array of links, parse it. If it's a single URL, wrap it in an array)
-        let parsedUrls = [];
+        // --- FIX: Parse the array properly ---
+        let urlsToScrape = [];
         try {
-            parsedUrls = JSON.parse(dataUrl);
-            if (!Array.isArray(parsedUrls)) parsedUrls = [dataUrl];
+            const parsed = JSON.parse(data);
+            urlsToScrape = Array.isArray(parsed) ? parsed : [data];
         } catch (e) {
-            parsedUrls = [dataUrl];
+            urlsToScrape = [data];
         }
 
-        const promises = [];
+        console.log(`[HDhub4u] Starting extraction for ${urlsToScrape.length} sources...`);
 
-        // 2. Loop through every URL and scrape it
-        for (const targetUrl of parsedUrls) {
-            promises.push((async () => {
-                try {
-                    const resp = await axios.get(targetUrl, { 
-                        headers: { 
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-                            "Cookie": "xla=s4t" 
-                        }
-                    });
-                    const $ = cheerio.load(resp.data);
-                    const extractPromises = [];
-
-                    $("p").each((i, pEl) => {
-                        $(pEl).find("a").each((j, aEl) => {
-                            const href = $(aEl).attr("href");
-                            if (!href) return;
-
-                            const lowerHref = href.toLowerCase();
-                            if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
-
-                            if (
-                                lowerHref.includes("hub") || 
-                                lowerHref.includes("vidstack") || 
-                                lowerHref.includes("hdstream4u")
-                            ) {
-                                extractPromises.push(extractors.extractGeneric(href, targetUrl, subtitleCb, linkCb));
-                            }
-                        });
-                    });
-
-                    $("iframe").each((i, el) => {
-                        const src = $(el).attr("src");
-                        if (!src) return;
-                        
-                        const lowerSrc = src.toLowerCase();
-                        if (
-                            lowerSrc.includes("hub") || 
-                            lowerSrc.includes("vidstack") || 
-                            lowerSrc.includes("hdstream4u")
-                        ) {
-                            extractPromises.push(extractors.extractGeneric(src, targetUrl, subtitleCb, linkCb));
-                        }
-                    });
-
-                    await Promise.all(extractPromises);
-
-                } catch (e) {
-                    console.error(`[HDhub4u] Failed to scrape intermediate link ${targetUrl}:`, e.message);
+        // Execute all scrapes in parallel
+        await Promise.allSettled(urlsToScrape.map(async (url) => {
+            try {
+                // Ensure we are passing a clean string URL to the extractor
+                const targetUrl = (typeof url === 'string') ? url : url.url;
+                if (targetUrl) {
+                    await extractors.extractGeneric(targetUrl, targetUrl, subtitleCb, linkCb);
                 }
-            })());
-        }
+            } catch (e) {
+                console.error("[HDhub4u] Extraction failed for:", url);
+            }
+        }));
 
-        // Wait for all intermediate pages to be scraped
-        await Promise.all(promises);
-        
-        return links;
+        console.log(`[HDhub4u] Extraction finished. Found ${links.length} playable links.`);
+        return links; // Return the array to PlayerPage.tsx
     }
 }
 
