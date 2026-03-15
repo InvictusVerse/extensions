@@ -332,67 +332,79 @@ class HDhub4uProvider {
         }
     }
 
-    async loadLinks(url) {
+   async loadLinks(dataStr) {
         const links = [];
         const subtitleCb = (sub) => console.log("Found Subtitle:", sub);
         const linkCb = (link) => links.push(link);
 
+        // 1. Parse the stringified array we passed from the load() function
+        let urlsToFetch = [];
         try {
-            const resp = await axios.get(url, { 
-                headers: { 
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-                    "Cookie": "xla=s4t" 
-                }
-            });
-            const $ = cheerio.load(resp.data);
-            const promises = [];
+            urlsToFetch = JSON.parse(dataStr);
+        } catch (e) {
+            urlsToFetch = [dataStr]; // Fallback just in case it's a normal URL
+        }
 
-            $("p").each((i, pEl) => {
-                $(pEl).find("a").each((j, aEl) => {
-                    const href = $(aEl).attr("href");
-                    if (!href) return;
+        const promises = [];
 
-                    const lowerHref = href.toLowerCase();
-
-                    if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
-
-                    if (
-                        lowerHref.includes("hubdrive") || 
-                        lowerHref.includes("hubcloud") || 
-                        lowerHref.includes("hblinks") || 
-                        lowerHref.includes("hubcdn") || 
-                        lowerHref.includes("hubcdnn") || 
-                        lowerHref.includes("hubx") || 
-                        lowerHref.includes("hubstream") || 
-                        lowerHref.includes("vidstack") || 
-                        lowerHref.includes("hdstream4u")
-                    ) {
-                        promises.push(extractors.extractGeneric(href, url, subtitleCb, linkCb));
+        // 2. Loop through all the URLs
+        for (const url of urlsToFetch) {
+            try {
+                const resp = await axios.get(url, { 
+                    headers: { 
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+                        "Cookie": "xla=s4t" 
                     }
                 });
-            });
+                const $ = cheerio.load(resp.data);
 
-            $("iframe").each((i, el) => {
-                const src = $(el).attr("src");
-                if (!src) return;
-                
-                const lowerSrc = src.toLowerCase();
+                $("p").each((i, pEl) => {
+                    $(pEl).find("a").each((j, aEl) => {
+                        const href = $(aEl).attr("href");
+                        if (!href) return;
 
-                if (
-                    lowerSrc.includes("hubcloud") || 
-                    lowerSrc.includes("hubstream") || 
-                    lowerSrc.includes("vidstack") || 
-                    lowerSrc.includes("hdstream4u")
-                ) {
-                    promises.push(extractors.extractGeneric(src, url, subtitleCb, linkCb));
-                }
-            });
+                        const lowerHref = href.toLowerCase();
+                        if (lowerHref.includes("youtube.com") || lowerHref.includes("youtu.be")) return;
 
-            await Promise.all(promises);
+                        if (
+                            lowerHref.includes("hubdrive") || 
+                            lowerHref.includes("hubcloud") || 
+                            lowerHref.includes("hblinks") || 
+                            lowerHref.includes("hubcdn") || 
+                            lowerHref.includes("hubcdnn") || 
+                            lowerHref.includes("hubx") || 
+                            lowerHref.includes("hubstream") || 
+                            lowerHref.includes("vidstack") || 
+                            lowerHref.includes("hdstream4u")
+                        ) {
+                            promises.push(extractors.extractGeneric(href, url, subtitleCb, linkCb));
+                        }
+                    });
+                });
 
-        } catch (e) {
-            console.error("[HDhub4u] Load Links Error:", e.message);
+                $("iframe").each((i, el) => {
+                    const src = $(el).attr("src");
+                    if (!src) return;
+                    
+                    const lowerSrc = src.toLowerCase();
+
+                    if (
+                        lowerSrc.includes("hubcloud") || 
+                        lowerSrc.includes("hubstream") || 
+                        lowerSrc.includes("vidstack") || 
+                        lowerSrc.includes("hdstream4u")
+                    ) {
+                        promises.push(extractors.extractGeneric(src, url, subtitleCb, linkCb));
+                    }
+                });
+
+            } catch (e) {
+                console.error(`[HDhub4u] Load Links Error for ${url}:`, e.message);
+            }
         }
+
+        // Wait for all extractors across all pages to finish
+        await Promise.all(promises);
         
         return links;
     }
