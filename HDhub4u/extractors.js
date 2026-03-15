@@ -13,6 +13,80 @@ function getIndexQuality(header) {
     return match ? parseInt(match[1]) : 2160;
 }
 
+// --- NEW UNPACKER FOR VIDHIDE ---
+function unpack(code) {
+    const match = code.match(/}\s*\('([^']*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'\.split\('\|'\)/);
+    if (!match) return code;
+
+    let p = match[1];
+    const a = parseInt(match[2], 10);
+    const c = parseInt(match[3], 10);
+    const k = match[4].split('|');
+
+    const e = function(c) {
+        return (c < a ? '' : e(Math.floor(c / a))) + ((c % a) > 35 ? String.fromCharCode((c % a) + 29) : (c % a).toString(36));
+    };
+
+    for (let i = c - 1; i >= 0; i--) {
+        if (k[i]) {
+            p = p.replace(new RegExp('\\b' + e(i) + '\\b', 'g'), k[i]);
+        }
+    }
+    return p;
+}
+
+// --- NEW VIDHIDE EXTRACTOR (Used by hdstream4u) ---
+async function extractVidHide(url, referer, subtitleCb, linkCb) {
+    try {
+        console.log(`Bypassing VidHide at: ${url}`);
+        
+        // VidHide typically uses /v/ or /embed/ for its actual player page
+        let embedUrl = url;
+        if (url.includes("/file/")) {
+            embedUrl = url.replace("/file/", "/v/");
+        }
+
+        const resp = await axios.get(embedUrl, {
+            headers: {
+                "User-Agent": DEFAULT_HEADERS["User-Agent"],
+                "Referer": referer || url
+            }
+        });
+
+        let html = resp.data;
+
+        // VidHide obfuscates their player source code. We must unpack it.
+        const packedRegex = /eval\(function\(p,a,c,k,e,d\).*?\)\)/;
+        const packedMatch = html.match(packedRegex);
+
+        if (packedMatch) {
+            html = unpack(packedMatch[0]);
+        }
+
+        // Once unpacked, look for the m3u8 source link
+        const sourceMatch = html.match(/(?:file|source):\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
+
+        if (sourceMatch) {
+            linkCb({
+                source: "HDStream4u",
+                name: "HDStream4u (HLS)",
+                url: sourceMatch[1],
+                isM3u8: true,
+                quality: "HD",
+                referer: embedUrl,
+                headers: {
+                    "Referer": embedUrl,
+                    "Origin": utils.getBaseUrl(embedUrl)
+                }
+            });
+        } else {
+            console.log("[VidHide] No m3u8 stream found in the unpacked HTML.");
+        }
+    } catch (e) {
+        console.error("[VidHide] Error:", e.message);
+    }
+}
+
 async function extractVidStack(url, referer, subtitleCb, linkCb) {
     try {
         console.log(`Bypassing VidStack/HubCloud at: ${url}`);
@@ -115,7 +189,6 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
             } else if (label.includes("download file")) {
                 linkCb({ source: referer, name: `Direct ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("buzzserver")) {
-                // maxRedirects: 0 is successfully mimicked in nativeAxios
                 promises.push(axios.get(`${buttonLink}/download`, { headers: { ...DEFAULT_HEADERS, Referer: buttonLink }, maxRedirects: 0 })
                     .catch(err => {
                         if (err.response && err.response.headers.location) {
@@ -216,7 +289,10 @@ async function extractGeneric(url, referer, subtitleCb, linkCb) {
     
     if (lower.includes("hubcloud")) {
         await extractHubCloud(url, referer, subtitleCb, linkCb);
-    } else if (lower.includes("hubstream") || lower.includes("vidstack") || lower.includes("hdstream4u")) {
+    } else if (lower.includes("hdstream4u")) {
+        // --- MOVED TO VIDHIDE EXTRACTOR ---
+        await extractVidHide(url, referer, subtitleCb, linkCb);
+    } else if (lower.includes("hubstream") || lower.includes("vidstack")) {
         await extractVidStack(url, referer, subtitleCb, linkCb);
     } else if (lower.includes("hblinks")) {
         await extractHblinks(url, referer, subtitleCb, linkCb);
@@ -245,6 +321,7 @@ async function extractGeneric(url, referer, subtitleCb, linkCb) {
 
 module.exports = {
     extractVidStack, 
+    extractVidHide,
     extractHubCloud, 
     extractHblinks, 
     extractHubCDN,
