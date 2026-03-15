@@ -2,6 +2,12 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const utils = require('./utils');
 
+// Added standard browser headers and the specific Cloudstream bypass cookie globally
+const DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "Cookie": "xla=s4t" 
+};
+
 function getIndexQuality(header) {
     const match = header.match(/(\d{3,4})[pP]/);
     return match ? parseInt(match[1]) : 2160;
@@ -14,9 +20,9 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
     try {
         console.log(`Bypassing VidStack/HubCloud at: ${url}`);
         
-        // Anti-Bot Bypass Headers
+        // Anti-Bot Bypass Headers - STRICTLY requires Firefox UA per Kotlin source
         const headers = { 
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
             "Referer": referer || url,
             "Accept": "application/json, text/plain, */*"
         };
@@ -63,7 +69,10 @@ async function extractVidStack(url, referer, subtitleCb, linkCb) {
                 referer: url, 
                 isM3u8: m3u8.includes('.m3u8') || m3u8.includes('playlist'),
                 quality: "HD", 
-                headers: { referer: url }
+                headers: { 
+                    "Referer": url,
+                    "Origin": url.split('/').slice(0, 3).join('/') // Required for MPV to play VidStack
+                }
             });
         }
     } catch (e) { 
@@ -79,10 +88,10 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
         let href = url;
         const baseUrl = utils.getBaseUrl(url);
 
-        // Bypass headers for Cloudflare
+        // Bypass headers for Cloudflare / HubCloud
         const bypassHeaders = {
-            'Referer': referer || url,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            ...DEFAULT_HEADERS,
+            'Referer': referer || url
         };
 
         if (!url.includes("hubcloud.php")) {
@@ -115,7 +124,7 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
             } else if (label.includes("download file")) {
                 linkCb({ source: referer, name: `Direct ${labelExtras}`, url: buttonLink, isM3u8: false });
             } else if (label.includes("buzzserver")) {
-                promises.push(axios.get(`${buttonLink}/download`, { headers: { Referer: buttonLink }, maxRedirects: 0 })
+                promises.push(axios.get(`${buttonLink}/download`, { headers: { ...DEFAULT_HEADERS, Referer: buttonLink }, maxRedirects: 0 })
                     .catch(err => {
                         if (err.response && err.response.headers.location) {
                             linkCb({ source: `${referer} [BuzzServer]`, name: `BuzzServer ${labelExtras}`, url: err.response.headers.location, isM3u8: false });
@@ -147,7 +156,7 @@ async function extractHubCloud(url, referer, subtitleCb, linkCb) {
 // ------------------------------------------------------------------------------------
 async function extractHubdrive(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url, { headers: { Referer: referer }});
+        const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
         const $ = cheerio.load(resp.data);
         const href = $('.btn.btn-primary.btn-user.btn-success1.m-1').attr('href');
         if (!href) return;
@@ -165,7 +174,7 @@ async function extractHubdrive(url, referer, subtitleCb, linkCb) {
 // ------------------------------------------------------------------------------------
 async function extractHubCDN(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url, { headers: { Referer: referer }});
+        const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
         const match = resp.data.match(/reurl\s*=\s*"([^"]+)"/);
         if (!match) return;
 
@@ -186,7 +195,7 @@ async function extractHubCDN(url, referer, subtitleCb, linkCb) {
 // ------------------------------------------------------------------------------------
 async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url, { headers: { Referer: referer }});
+        const resp = await axios.get(url, { headers: { ...DEFAULT_HEADERS, Referer: referer }});
         const match = resp.data.match(/r=([A-Za-z0-9+/=]+)/);
         if (!match) return;
 
@@ -204,7 +213,7 @@ async function extractHubcdnn(url, referer, subtitleCb, linkCb) {
 // ------------------------------------------------------------------------------------
 async function extractHblinks(url, referer, subtitleCb, linkCb) {
     try {
-        const resp = await axios.get(url);
+        const resp = await axios.get(url, { headers: DEFAULT_HEADERS });
         const $ = cheerio.load(resp.data);
         const promises = [];
 
@@ -246,7 +255,7 @@ async function extractGeneric(url, referer, subtitleCb, linkCb) {
         linkCb({ source: "Pixeldrain", name: "Pixeldrain", url: `${pixelBase}/api/file/${fileId}?download`, isM3u8: false });
     } else if (lower.includes("streamtape")) {
         try {
-            const resp = await axios.get(url);
+            const resp = await axios.get(url, { headers: DEFAULT_HEADERS });
             const match = resp.data.match(/document\.getElementById\('robotlink'\)\.innerHTML = '([^']+)'/);
             if (match) {
                 linkCb({ source: "StreamTape", name: "StreamTape", url: `https:${match[1]}`, isM3u8: false });
@@ -268,5 +277,5 @@ module.exports = {
     extractHubcdnn, 
     extractHubdrive, 
     extractGeneric,
-    invokeVidstack: extractVidStack // Added alias so main.js doesn't break
+    invokeVidstack: extractVidStack // Alias to prevent breaking imports
 };
