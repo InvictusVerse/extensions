@@ -7,9 +7,10 @@ const nativeAxios = {
         const maxRedirects = config.maxRedirects !== undefined ? config.maxRedirects : -1;
         const followRedirects = maxRedirects !== 0;
 
-        // Check if React has exposed the Native Fetch bridge
+        console.log(`[Extension] nativeAxios.get intercepted for URL: ${url}`);
+
         if (typeof window !== 'undefined' && window.StreamCoreProviders?.backend?.nativeFetch) {
-            console.log("[NativeAxios] Routing GET via React Bridge:", url);
+            console.log(`[Extension] Success: Routing to React Bridge...`);
             
             const res = await window.StreamCoreProviders.backend.nativeFetch(url, 'GET', headers, '', followRedirects);
 
@@ -35,7 +36,7 @@ const nativeAxios = {
             }
             return responseObj;
         } else {
-            console.warn("[NativeAxios] React Bridge missing. Falling back to sandbox axios.");
+            console.error("[Extension] ERROR: React Bridge (window.StreamCoreProviders.backend) is missing! Falling back to raw Axios.");
             const axios = require('axios');
             return axios.get(url, config);
         }
